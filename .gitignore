@@ -31,6 +31,7 @@ auths/*
 # Documentation
 docs/*
 !docs/management-api-v8.md
+!docs/telemetry.md
 AGENTS.md
 CLAUDE.md
 GEMINI.md
@@ -48,6 +49,10 @@ AGENTS.override.md
 .agents
 .pi
 .agents/*
+!.agents/
+!.agents/skills/
+!.agents/skills/otel-dev-loop/
+!.agents/skills/otel-dev-loop/SKILL.md
 .opencode/*
 .idea/*
 .beads/*

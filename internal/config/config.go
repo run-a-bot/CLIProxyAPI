@@ -187,4 +187,7 @@ type Config struct {
 
 	// Payload defines default and override rules for provider payload parameters.
 	Payload PayloadConfig `yaml:"payload" json:"payload"`
+
+	// Telemetry controls OpenTelemetry traces, metrics, and optional payload capture.
+	Telemetry TelemetryConfig `yaml:"telemetry" json:"telemetry"`
 }

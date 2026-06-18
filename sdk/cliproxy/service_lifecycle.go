@@ -11,6 +11,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/home"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/redisqueue"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/registry"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/telemetry"
 	sdkaccess "github.com/router-for-me/CLIProxyAPI/v8/sdk/access"
 	sdkAuth "github.com/router-for-me/CLIProxyAPI/v8/sdk/auth"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
@@ -71,6 +72,16 @@ func (s *Service) Run(ctx context.Context) error {
 	}
 
 	s.applyRetryConfig(s.cfg)
+
+	telemetryProvider, errTelemetry := telemetry.NewProvider(ctx, s.cfg.Telemetry)
+	if errTelemetry != nil {
+		return fmt.Errorf("cliproxy: failed to initialize telemetry: %w", errTelemetry)
+	}
+	s.telemetry = telemetryProvider
+	if telemetryProvider != nil {
+		s.serverOptions = append([]api.ServerOption{api.WithMiddleware(telemetryProvider.Middleware())}, s.serverOptions...)
+	}
+
 	s.configureCooldownStateStore(s.cfg)
 
 	s.registerPluginAuthParser()
@@ -331,6 +342,11 @@ func (s *Service) Shutdown(ctx context.Context) error {
 					shutdownErr = errStop
 				}
 			}
+		}
+
+		if s.telemetry != nil {
+			s.telemetry.Shutdown(ctx)
+			s.telemetry = nil
 		}
 
 		if s.pluginHost != nil {

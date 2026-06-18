@@ -1,0 +1,37 @@
+extensions:
+  bearertokenauth:
+    token: "cliproxy-otel-e2e-token"
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+        auth:
+          authenticator: bearertokenauth
+      http:
+        endpoint: 0.0.0.0:4318
+        traces_url_path: /api/default/otel/v1/traces
+        metrics_url_path: /api/default/otel/v1/metrics
+        auth:
+          authenticator: bearertokenauth
+
+processors:
+  batch:
+    timeout: 200ms
+
+exporters:
+  debug:
+    verbosity: detailed
+
+service:
+  extensions: [bearertokenauth]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug]
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug]

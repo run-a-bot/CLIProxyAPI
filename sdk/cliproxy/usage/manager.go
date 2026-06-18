@@ -292,6 +292,9 @@ type Plugin interface {
 	HandleUsage(ctx context.Context, record Record)
 }
 
+// Hook observes usage records synchronously before queue dispatch.
+type Hook func(ctx context.Context, record Record)
+
 type queueItem struct {
 	ctx    context.Context
 	record Record
@@ -311,6 +314,9 @@ type Manager struct {
 	pluginsMu sync.RWMutex
 	plugins   []Plugin
 	named     map[string]int
+
+	hooksMu sync.RWMutex
+	hooks   []Hook
 }
 
 // NewManager constructs a manager with a buffered queue.
@@ -385,6 +391,27 @@ func (m *Manager) RegisterNamed(name string, plugin Plugin) {
 	m.pluginsMu.Unlock()
 }
 
+// RegisterHook appends a synchronous usage observer and returns an unregister function.
+func (m *Manager) RegisterHook(hook Hook) func() {
+	if m == nil || hook == nil {
+		return func() {}
+	}
+	m.hooksMu.Lock()
+	index := len(m.hooks)
+	m.hooks = append(m.hooks, hook)
+	m.hooksMu.Unlock()
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			m.hooksMu.Lock()
+			if index >= 0 && index < len(m.hooks) {
+				m.hooks[index] = nil
+			}
+			m.hooksMu.Unlock()
+		})
+	}
+}
+
 // Publish enqueues a usage record for processing. If no plugin is registered
 // the record will be discarded downstream.
 func (m *Manager) Publish(ctx context.Context, record Record) {
@@ -405,6 +432,7 @@ func (m *Manager) Publish(ctx context.Context, record Record) {
 			record.TraceID = trID
 		}
 	}
+	m.dispatchHooks(ctx, record)
 	// ensure worker is running even if Start was not called explicitly
 	m.Start(context.Background())
 	m.mu.Lock()
@@ -415,6 +443,19 @@ func (m *Manager) Publish(ctx context.Context, record Record) {
 	m.queue = append(m.queue, queueItem{ctx: ctx, record: record})
 	m.mu.Unlock()
 	m.cond.Signal()
+}
+
+func (m *Manager) dispatchHooks(ctx context.Context, record Record) {
+	m.hooksMu.RLock()
+	hooks := make([]Hook, len(m.hooks))
+	copy(hooks, m.hooks)
+	m.hooksMu.RUnlock()
+	for _, hook := range hooks {
+		if hook == nil {
+			continue
+		}
+		safeInvokeHook(hook, ctx, record)
+	}
 }
 
 func (m *Manager) run(ctx context.Context) {
@@ -459,6 +500,15 @@ func safeInvoke(plugin Plugin, ctx context.Context, record Record) {
 	plugin.HandleUsage(ctx, record)
 }
 
+func safeInvokeHook(hook Hook, ctx context.Context, record Record) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Errorf("usage: hook panic recovered: %v", r)
+		}
+	}()
+	hook(ctx, record)
+}
+
 var defaultManager = NewManager(512)
 
 // DefaultManager returns the global usage manager instance.
@@ -469,6 +519,9 @@ func RegisterPlugin(plugin Plugin) { DefaultManager().Register(plugin) }
 
 // RegisterNamedPlugin registers or replaces a named plugin on the default manager.
 func RegisterNamedPlugin(name string, plugin Plugin) { DefaultManager().RegisterNamed(name, plugin) }
+
+// RegisterHook registers a synchronous usage observer on the default manager.
+func RegisterHook(hook Hook) func() { return DefaultManager().RegisterHook(hook) }
 
 // PublishRecord publishes a record using the default manager.
 func PublishRecord(ctx context.Context, record Record) { DefaultManager().Publish(ctx, record) }

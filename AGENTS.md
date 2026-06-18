@@ -59,3 +59,8 @@ go build -o test-output ./cmd/server && rm test-output # Verify compile (REQUIRE
 - Timeouts are allowed only during credential acquisition; after an upstream connection is established, do not set timeouts for any subsequent network behavior. Intentional exceptions that must remain allowed are the Codex websocket liveness deadlines in `internal/runtime/executor/codex_websockets_executor.go`, the wsrelay session deadlines in `internal/wsrelay/session.go`, the management APICall timeout in `internal/api/handlers/management/api_tools.go`, and the `cmd/fetch_antigravity_models` utility timeouts
 - Avoid wall-clock `time.Sleep` in TTL, expiration, ordering, or cache-eviction unit tests due to platform timer granularity (e.g. Windows default timer resolution of ~15.6ms) and CI jitter under load; prefer controllable clocks (`nowFunc` / mock clock), explicit timestamp manipulation, or deterministic synchronization primitives.
 - Note: if modifying features that involve CLIProxyAPIHome, check if corresponding updates are needed in the CLIProxyAPIHome repository.
+
+## Fork Patches (patch.md)
+- All fork-specific commits and modifications maintained on top of upstream releases are documented in `patch.md`.
+- Each commit on the fork branch adds or updates a corresponding section in `patch.md` detailing the background, modified/created files, and verification steps.
+- When rebasing this fork to newer upstream release tags, keep `patch.md` updated and ensure all tests continue to pass.

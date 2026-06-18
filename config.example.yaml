@@ -1082,6 +1082,33 @@ observability:
     enable: false
     addr: "127.0.0.1:8316"
 
+  # OpenTelemetry export. Disabled by default.
+  # OTLP gRPC collector example: endpoint "localhost:4317", protocol "grpc", insecure true.
+  # OTLP HTTP/OpenObserve example: endpoint "localhost:5080", protocol "http", path-prefix "api/default", insecure true,
+  # headers ["Authorization: Basic ..."].
+  telemetry:
+    enabled: false
+    service-name: "cliproxyapi"
+    service-version: ""
+    otlp:
+      endpoint: "localhost:4317"
+      protocol: "grpc" # grpc or http
+      path-prefix: ""
+      headers: []
+      insecure: true
+      skip-health-traces: true
+    traces:
+      enabled: true
+    metrics:
+      enabled: true
+    logs:
+      enabled: false
+      level: "info"
+    payload-capture:
+      enabled: false
+      max-prompt-bytes: 32768
+      max-response-bytes: 65536
+
 # Standard dynamic library plugins are trusted in-process code. They are disabled by default.
 # Build Go examples with go build -buildmode=c-shared for the target GOOS/GOARCH.
 # Other languages can implement the same C ABI and JSON method protocol.
