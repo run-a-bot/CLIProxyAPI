@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -273,6 +274,26 @@ func (h *Handler) Middleware() gin.HandlerFunc {
 		clientIP := c.ClientIP()
 		localClient := clientIP == "127.0.0.1" || clientIP == "::1"
 
+		if h != nil && h.cfg != nil && h.cfg.RemoteManagement.TrustedHeaderAuth.Enabled {
+			if isTrustedProxy(clientIP, h.cfg.RemoteManagement.TrustedHeaderAuth.TrustedProxies) {
+				headerName := h.cfg.RemoteManagement.TrustedHeaderAuth.UserIDHeader
+				if headerName == "" {
+					headerName = "X-User-UUID"
+				}
+				if userID := strings.TrimSpace(c.GetHeader(headerName)); userID != "" {
+					c.Set("management_user_id", userID)
+					c.Set("management_auth_method", "header")
+					log.WithFields(log.Fields{
+						"ip":      clientIP,
+						"user_id": userID,
+						"header":  headerName,
+					}).Info("management: authenticated via trusted header")
+					c.Next()
+					return
+				}
+			}
+		}
+
 		// Accept either Authorization: Bearer <key> or X-Management-Key
 		var provided string
 		if ah := c.GetHeader("Authorization"); ah != "" {
@@ -294,6 +315,30 @@ func (h *Handler) Middleware() gin.HandlerFunc {
 		}
 		c.Next()
 	}
+}
+
+func isTrustedProxy(clientIP string, trustedProxies []string) bool {
+	if clientIP == "127.0.0.1" || clientIP == "::1" {
+		return true
+	}
+	ip := net.ParseIP(clientIP)
+	if ip == nil {
+		return false
+	}
+	for _, cidr := range trustedProxies {
+		if _, ipNet, err := net.ParseCIDR(cidr); err == nil && ipNet != nil {
+			if ipNet.Contains(ip) {
+				return true
+			}
+		} else {
+			if singleIP := net.ParseIP(cidr); singleIP != nil {
+				if singleIP.Equal(ip) {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 // AuthenticateManagementKey verifies the provided management key for the given client.
@@ -457,4 +502,22 @@ func (h *Handler) updateStringField(c *gin.Context, set func(string)) {
 	}
 	set(*body.Value)
 	h.persist(c)
+}
+
+// Whoami returns details of the currently authenticated management session.
+func (h *Handler) Whoami(c *gin.Context) {
+	userID, _ := c.Get("management_user_id")
+	userIDStr, _ := userID.(string)
+
+	authMethod, _ := c.Get("management_auth_method")
+	authMethodStr, _ := authMethod.(string)
+	if authMethodStr == "" {
+		authMethodStr = "secret"
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"authenticated": true,
+		"user_id":       userIDStr,
+		"auth_method":   authMethodStr,
+	})
 }

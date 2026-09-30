@@ -86,3 +86,118 @@ func TestMiddlewareSetsSupportPluginHeader(t *testing.T) {
 		}
 	})
 }
+
+func TestMiddlewareTrustedHeaderAuth(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.RemoteManagement.TrustedHeaderAuth.Enabled = true
+	cfg.RemoteManagement.TrustedHeaderAuth.UserIDHeader = "X-User-UUID"
+	cfg.RemoteManagement.TrustedHeaderAuth.TrustedProxies = []string{"10.0.0.0/8", "192.168.1.1"}
+
+	h := &Handler{
+		cfg:            cfg,
+		failedAttempts: make(map[string]*attemptInfo),
+		envSecret:      "test-secret",
+	}
+	middleware := h.Middleware()
+
+	t.Run("header auth disabled", func(t *testing.T) {
+		hDisabled := &Handler{
+			cfg: &config.Config{
+				RemoteManagement: config.RemoteManagement{
+					TrustedHeaderAuth: config.TrustedHeaderAuth{
+						Enabled: false,
+					},
+				},
+			},
+			failedAttempts: make(map[string]*attemptInfo),
+			envSecret:      "test-secret",
+		}
+		mw := hDisabled.Middleware()
+
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Request = httptest.NewRequest(http.MethodGet, "/v0/management/config", nil)
+		c.Request.RemoteAddr = "10.0.0.1:12345"
+		c.Request.Header.Set("X-User-UUID", "user-123")
+
+		mw(c)
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("expected StatusForbidden, got %d", rec.Code)
+		}
+	})
+
+	t.Run("untrusted IP with header", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Request = httptest.NewRequest(http.MethodGet, "/v0/management/config", nil)
+		c.Request.RemoteAddr = "172.16.0.1:12345"
+		c.Request.Header.Set("X-User-UUID", "user-123")
+
+		middleware(c)
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("expected StatusForbidden, got %d", rec.Code)
+		}
+	})
+
+	t.Run("trusted CIDR proxy IP with header", func(t *testing.T) {
+		engine := gin.New()
+		engine.GET("/v0/management/whoami", middleware, h.Whoami)
+
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/v0/management/whoami", nil)
+		req.RemoteAddr = "10.0.0.5:12345"
+		req.Header.Set("X-User-UUID", "user-456")
+		engine.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected StatusOK, got %d", rec.Code)
+		}
+		expectedBody := `{"auth_method":"header","authenticated":true,"user_id":"user-456"}`
+		if strings.TrimSpace(rec.Body.String()) != expectedBody {
+			t.Fatalf("expected body %q, got %q", expectedBody, rec.Body.String())
+		}
+	})
+
+	t.Run("trusted single IP proxy with header", func(t *testing.T) {
+		engine := gin.New()
+		engine.GET("/v0/management/whoami", middleware, h.Whoami)
+
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/v0/management/whoami", nil)
+		req.RemoteAddr = "192.168.1.1:12345"
+		req.Header.Set("X-User-UUID", "user-789")
+		engine.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected StatusOK, got %d", rec.Code)
+		}
+	})
+
+	t.Run("trusted proxy IP with empty header", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Request = httptest.NewRequest(http.MethodGet, "/v0/management/config", nil)
+		c.Request.RemoteAddr = "10.0.0.5:12345"
+		c.Request.Header.Set("X-User-UUID", "")
+
+		middleware(c)
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("expected StatusForbidden, got %d", rec.Code)
+		}
+	})
+
+	t.Run("localhost always trusted", func(t *testing.T) {
+		engine := gin.New()
+		engine.GET("/v0/management/whoami", middleware, h.Whoami)
+
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/v0/management/whoami", nil)
+		req.RemoteAddr = "127.0.0.1:12345"
+		req.Header.Set("X-User-UUID", "user-local")
+		engine.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected StatusOK, got %d", rec.Code)
+		}
+	})
+}

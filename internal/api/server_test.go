@@ -3280,3 +3280,23 @@ func assertSerializedCPAWebSearch(t *testing.T, model map[string]any, want bool)
 		t.Fatalf("model %v web_search = %#v, want %v", model["slug"], capabilities["web_search"], want)
 	}
 }
+
+func TestInjectTrustedHeaderBootstrap(t *testing.T) {
+	contents := []byte(`<!doctype html><html><head><title>Management</title><script type="module" src="/assets/app.js"></script></head></html>`)
+
+	patched := string(injectTrustedHeaderBootstrap(contents))
+	if !strings.Contains(patched, `id="cliproxy-trusted-header-bootstrap"`) {
+		t.Fatalf("trusted-header bootstrap was not injected: %s", patched)
+	}
+	if !strings.Contains(patched, `localStorage.setItem("managementKey", "trusted-header")`) {
+		t.Fatalf("bootstrap does not seed dummy management key: %s", patched)
+	}
+	if strings.Index(patched, `cliproxy-trusted-header-bootstrap`) > strings.Index(patched, `<script type="module"`) {
+		t.Fatalf("bootstrap must run before the management app module: %s", patched)
+	}
+
+	repatched := string(injectTrustedHeaderBootstrap([]byte(patched)))
+	if strings.Count(repatched, `cliproxy-trusted-header-bootstrap`) != 1 {
+		t.Fatalf("bootstrap injection is not idempotent: %s", repatched)
+	}
+}

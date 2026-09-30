@@ -124,5 +124,7 @@ func ParseConfigBytes(data []byte) (*Config, error) {
 	cfg.SanitizeOAuthRequestScopedErrors()
 	cfg.SanitizePayloadRules()
 
+	applyRemoteManagementEnv(&cfg)
+
 	return &cfg, nil
 }

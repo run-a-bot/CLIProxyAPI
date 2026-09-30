@@ -333,6 +333,15 @@ type RemoteManagement struct {
 	PanelGitHubRepository string `yaml:"panel-github-repository"`
 	// BaseURL specifies the base URL of the remote management API for TUI client mode (e.g. "https://proxy.example.com").
 	BaseURL string `yaml:"base-url,omitempty" json:"base-url,omitempty"`
+	// TrustedHeaderAuth configures trusted reverse-proxy authentication.
+	TrustedHeaderAuth TrustedHeaderAuth `yaml:"trusted-header-auth" json:"trusted-header-auth"`
+}
+
+// TrustedHeaderAuth configures trusted reverse-proxy authentication contract.
+type TrustedHeaderAuth struct {
+	Enabled        bool     `yaml:"enabled" json:"enabled"`
+	UserIDHeader   string   `yaml:"user-id-header" json:"user-id-header"`
+	TrustedProxies []string `yaml:"trusted-proxies" json:"trusted-proxies"`
 }
 
 // QuotaExceeded defines the behavior when API quota limits are exceeded.

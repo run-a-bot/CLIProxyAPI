@@ -119,3 +119,74 @@ Document the existence and maintenance expectations of `patch.md`.
 - `go test -v ./internal/telemetry ./internal/config` passes.
 - `CLIPROXY_TELEMETRY_ENABLED=true` enables tracing and metric export to the configured OTLP collector.
 - `otel-e2e.sh` verifies span creation, W3C trace propagation, and token metric export against the mock backend.
+
+### 2. Add trusted header authentication for management API/UI
+
+#### background
+
+When deploying CLIProxyAPI behind an authenticating reverse proxy (such as Authelia,
+OAuth2-Proxy, or Cloudflare Access), the proxy has already verified user identity and
+forwards identity headers (e.g. `X-User-UUID`). Requiring administrators to manually
+enter a secret key inside protected internal networks creates unnecessary friction.
+This change introduces trusted header authentication for the `/v0/management` and
+`/v8/management` APIs, validating client IPs against configured trusted proxies or CIDRs.
+In addition, when serving the management web dashboard (`/management.html`), an inline
+bootstrap script is automatically injected to pre-seed the single-page application's
+`localStorage` credentials (`isLoggedIn` and `managementKey`), allowing administrators
+to access the UI directly without an extraneous login prompt.
+
+#### files
+
+##### internal/config/config_types.go (modify)
+
+Add `TrustedHeaderAuth` to `RemoteManagement` with settings for `enabled`, `user-id-header`,
+and `trusted-proxies`.
+
+##### internal/config/config_normalization.go (modify)
+
+Add `applyRemoteManagementEnv` to support environment variable configuration:
+`CLIPROXYAPI_TRUSTED_HEADER_AUTH_ENABLED`, `CLIPROXYAPI_TRUSTED_USER_ID_HEADER`, and
+`CLIPROXYAPI_TRUSTED_HEADER_AUTH_PROXIES`.
+
+##### internal/config/config_load.go (modify)
+
+Apply remote management environment overrides during configuration loading.
+
+##### internal/config/parse.go (modify)
+
+Apply remote management environment overrides when parsing configuration bytes.
+
+##### internal/api/handlers/management/handler.go (modify)
+
+Implement trusted header authentication in `Handler.Middleware()`, verifying that the
+caller's IP belongs to `TrustedProxies` (or localhost) and extracting the user ID header.
+Add the `Whoami` endpoint returning authentication status, method, and user ID.
+
+##### internal/api/handlers/management/handler_test.go (modify)
+
+Add test cases covering disabled header auth, untrusted client IPs, trusted CIDRs, trusted
+single IPs, empty user ID headers, and localhost access.
+
+##### internal/api/server_management.go (modify)
+
+Register `/v0/management/whoami` on the management router. In `serveManagementControlPanel`,
+inject the inline trusted-header bootstrap script into `/management.html` when
+`cfg.RemoteManagement.TrustedHeaderAuth.Enabled` is `true`.
+
+##### internal/api/server_management_v8.go (modify)
+
+Register `/v8/management/whoami` on the v8 management router.
+
+##### internal/api/server_test.go (modify)
+
+Add `TestInjectTrustedHeaderBootstrap` verifying script injection before `<script type="module">`
+or `</head>`, ensuring idempotency and verification of `localStorage` initialization.
+
+#### verify
+
+- Requests from untrusted IPs with header authentication are rejected with HTTP 403.
+- Requests from trusted CIDRs/IPs with valid user headers succeed and authenticate.
+- `/v0/management/whoami` and `/v8/management/whoami` return `{"auth_method":"header","authenticated":true,"user_id":"..."}`.
+- Navigating to `/management.html` with trusted header authentication enabled serves HTML containing the bootstrap script, pre-populating `localStorage.isLoggedIn` and `localStorage.managementKey`.
+- `go test -v ./internal/api/handlers/management` passes.
+- `go test -v -run TestInjectTrustedHeaderBootstrap ./internal/api` passes.
