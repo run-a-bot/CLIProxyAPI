@@ -190,3 +190,59 @@ or `</head>`, ensuring idempotency and verification of `localStorage` initializa
 - Navigating to `/management.html` with trusted header authentication enabled serves HTML containing the bootstrap script, pre-populating `localStorage.isLoggedIn` and `localStorage.managementKey`.
 - `go test -v ./internal/api/handlers/management` passes.
 - `go test -v -run TestInjectTrustedHeaderBootstrap ./internal/api` passes.
+
+### 3. Bundle latest compatible management.html release
+
+#### background
+
+CLIProxyAPI serves the management control panel at `/management.html`. While upstream
+attempts to download `management.html` dynamically from GitHub releases at runtime into
+the runtime `static/` directory, air-gapped, containerized, or offline environments
+cannot reach GitHub, leading to startup delays, missing dashboards, or download failures.
+By tracking the latest compatible release of `management.html` directly in the repository
+under `./web/management.html`, container image builds and deployments can copy this
+bundled asset into the runtime location (e.g. `./static/management.html` or the path
+specified by `MANAGEMENT_STATIC_PATH`) without runtime external network calls.
+
+#### how to find newest compatible release
+
+When rebasing CLIProxyAPI to a newer upstream release or updating the management UI:
+
+1. Identify the upstream management center repository:
+   By default, CLIProxyAPI uses `https://github.com/router-for-me/Cli-Proxy-API-Management-Center`
+   (configured as `DefaultPanelGitHubRepository` in `internal/config/config_defaults.go` and
+   `defaultManagementReleaseURL` in `internal/managementasset/updater.go`).
+
+2. Query GitHub releases for the latest version tag:
+   ```bash
+   MANAGEMENT_PANEL_VERSION=$(curl -s https://api.github.com/repos/router-for-me/Cli-Proxy-API-Management-Center/releases/latest | jq -r '.tag_name')
+   echo "Latest panel release: ${MANAGEMENT_PANEL_VERSION}"
+   ```
+
+3. Download the matching `management.html` asset directly into `./web/`:
+   ```bash
+   mkdir -p web
+   curl -sL -o ./web/management.html "https://github.com/router-for-me/Cli-Proxy-API-Management-Center/releases/download/${MANAGEMENT_PANEL_VERSION}/management.html"
+   ```
+
+4. Verify that `./web/management.html` was downloaded correctly and is a valid non-empty HTML file:
+   ```bash
+   head -n 5 ./web/management.html
+   ```
+
+5. When building container images or deploying, copy `./web/management.html` to the target runtime static location (or point `MANAGEMENT_STATIC_PATH` to it):
+   ```dockerfile
+   COPY ./web/management.html /CLIProxyAPI/static/management.html
+   ```
+
+#### files
+
+##### web/management.html (create)
+
+Bundled production release asset of the management center web dashboard (version `v1.25.0`).
+
+#### verify
+
+- `./web/management.html` exists and contains valid HTML for the management panel.
+- Container builds or deployments copying `./web/management.html` to `static/management.html` (or setting `MANAGEMENT_STATIC_PATH`) serve the bundled dashboard without fetching from GitHub.
+- `patch.md` documents all fork patches, their rationale, file changes, and verification procedures.
